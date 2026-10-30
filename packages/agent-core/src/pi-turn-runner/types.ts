@@ -52,6 +52,19 @@ export interface LLMModelConfig {
    */
   hostMaxOutputTokens?: number;
   headers?: Record<string, string>;
+  /**
+   * Per-attempt wait (ms) for the first provider stream event before the
+   * request is aborted and reported as a retryable timeout. Absent: the
+   * `MCODE_LLM_FIRST_EVENT_TIMEOUT_MS` environment value, else
+   * `LLM_FIRST_EVENT_TIMEOUT_MS`. `0` disables the bound.
+   */
+  firstEventTimeoutMs?: number;
+  /**
+   * Per-attempt maximum gap (ms) between provider stream events after the
+   * first. Absent: `MCODE_LLM_STREAM_IDLE_TIMEOUT_MS`, else
+   * `LLM_STREAM_IDLE_TIMEOUT_MS`. `0` disables the bound.
+   */
+  streamIdleTimeoutMs?: number;
   fetch?: SimpleStreamOptions['fetch'];
   /** Provider payload transform for the main assistant response. */
   payloadTransform?: SimpleStreamOptions['onPayload'];
@@ -109,6 +122,12 @@ export type RunTurnCaller =
 /** Bounded origin of a cancelled Pi turn. Unknown values collapse to `unknown`. */
 export type AbortSource =
   | 'user_stop'
+  /**
+   * Leaving a conversation (TUI `/clear`, switching Sessions). Keeps the Goal and
+   * Queue pause effects of `user_stop`, but is NOT a stop: it must not cascade
+   * into the Session's background work, which is expected to keep running.
+   */
+  | 'session_leave'
   | 'immediate_send'
   | 'input_safety'
   | 'output_safety'
@@ -118,6 +137,7 @@ export type AbortSource =
 export function normalizeAbortSource(value: unknown): AbortSource {
   switch (value) {
     case 'user_stop':
+    case 'session_leave':
     case 'immediate_send':
     case 'input_safety':
     case 'output_safety':
@@ -182,6 +202,8 @@ export interface RunTurnInput<TCtx extends ToolExecutionContext = ToolExecutionC
   shouldStopAfterSteering?: () => boolean | Promise<boolean>;
   /** Gracefully ends after the current assistant/tool step and before any follow-up poll. */
   shouldStopAfterTurn?: () => boolean | Promise<boolean>;
+  /** Text returned when a provider emits a tool call the host intentionally did not expose. */
+  unexpectedToolCallFallback?: string;
   /**
    * Atomically seals external continuation acceptance once steering is empty.
    * `false` means work won the close race and the runner must poll once more.
